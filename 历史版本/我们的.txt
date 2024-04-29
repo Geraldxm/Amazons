@@ -1,0 +1,431 @@
+#include <iostream>
+#include <string>
+#include <cstdlib>
+#include <ctime>
+#include <iomanip>
+#include <cstring>
+#include <algorithm>
+#include <math.h>
+#include <queue>
+#include <vector>
+
+using namespace std;
+
+#define GRIDSIZE 8
+#define OBSTACLE 2
+#define judge_black 0
+#define judge_white 1
+#define grid_black 1
+#define grid_white -1
+#define INFINITE 0x3f3f3f3f
+#define WIN 1
+#define LOSE 0
+
+#define TIME_CONTROL
+#ifdef TIME_CONTROL
+// 时间控制用的一些参数
+double A_SEC = CLOCKS_PER_SEC;
+double threshold = 0.96 * A_SEC; // 限界时间
+int start_time;
+int current_time;
+int loop_out_time;
+#endif
+
+int all = 0;
+int ten = 0;
+int a0 = 0, a1 = 0, a2 = 0, a3 = 0, a4 = 0, a5 = 0, a6 = 0, a7 = 0, a8 = 0, a9 = 0, a10 = 0;
+inline bool inMap(int x, int y);
+double f1[32] = { 0.0000, 0.1080, 0.1080, 0.1235, 0.1332, 0.1400,
+                 0.1468, 0.1565, 0.1720, 0.1949, 0.2217,
+                 0.2476, 0.2680, 0.2800, 0.2884, 0.3000,
+                 0.3208, 0.3535, 0.4000, 0.4613, 0.5350,
+                 0.6181, 0.7075, 0.8000, 1.0000, 1.0000,
+                 1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000 };
+double f2[32] = { 1.0000, 0.3940, 0.3940, 0.3826, 0.3753, 0.3700,
+                 0.3647, 0.3574, 0.3460, 0.3294, 0.3098,
+                 0.2903, 0.2740, 0.2631, 0.2559, 0.2500,
+                 0.2430, 0.2334, 0.2200, 0.2020, 0.1800,
+                 0.1550, 0.1280, 0.1000, 0.0000, 0.0000,
+                 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000 };
+double f3[32] = { 0.0000, 0.1160, 0.1160, 0.1224, 0.1267, 0.1300,
+                 0.1333, 0.1376, 0.1440, 0.1531, 0.1640,
+                 0.1754, 0.1860, 0.1944, 0.1995, 0.2000,
+                 0.1950, 0.1849, 0.1700, 0.1510, 0.1287,
+                 0.1038, 0.0773, 0.0500, 0.0000, 0.0000,
+                 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000 };
+double f4[32] = { 0.0000, 0.1160, 0.1160, 0.1224, 0.1267, 0.1300,
+                 0.1333, 0.1376, 0.1440, 0.1531, 0.1640,
+                 0.1754, 0.1860, 0.1944, 0.1995, 0.2000,
+                 0.1950, 0.1849, 0.1700, 0.1510, 0.1287,
+                 0.1038, 0.0773, 0.0500, 0.0000, 0.0000,
+                 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000 };
+double f5[32] = { 0.0000, 0.2300, 0.2300, 0.2159, 0.2067, 0.2000,
+                 0.1933, 0.1841, 0.1700, 0.1496, 0.1254,
+                 0.1010, 0.0800, 0.0652, 0.0557, 0.0500,
+                 0.0464, 0.0436, 0.0400, 0.0346, 0.0274,
+                 0.0190, 0.0097, 0.0000, 0.0000, 0.0000,
+                 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000 };
+
+int turnID;                             // 当前轮次
+int currBotColor;                       // 本方所执子颜色（1为黑，-1为白，棋盘状态亦同）
+vector<pair<int, int>> blackInfo;       // 记录黑子的x和y
+vector<pair<int, int>> whiteInfo;       // 记录白子的x和y
+vector<pair<int, int>> arrowInfo;       // 记录箭的x和y
+int gridInfo[GRIDSIZE][GRIDSIZE] = { 0 }; // 先x后y，记录棋盘状态
+int dx[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+int dy[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+double mobility[GRIDSIZE][GRIDSIZE] = { 0 }; // 各个空格的灵活度
+double D2[2][8][8] = { 0 };
+double D1[2][8][8] = { 0 }; // 0 我的值  1 对方的值
+int beginPos[3000][2], possiblePos[3000][2], obstaclePos[3000][2];
+int startX, startY, resultX, resultY, obstacleX, obstacleY;
+
+class Coor // 用于队列处理的结构体
+{
+public:
+    int x = -1;
+    int y = -1;
+    int val = 0;
+    Coor(int x, int y, int val)
+    {
+        this->x = x;
+        this->y = y;
+        this->val = val;
+    }
+};
+
+// m的计算，代表最终的灵活度
+inline double m(int color)
+{
+    double tmp = 0;
+    for (int i = 0; i < GRIDSIZE; i++)
+    {
+        for (int j = 0; j < GRIDSIZE; j++)
+        {
+            if (gridInfo[i][j] == currBotColor)
+            {
+                double sum = 0;
+                for (int k = 0; k < 8; k++) // 8个方向
+                    for (int step = 1; step < GRIDSIZE; step++)
+                    {
+                        int tmpx = i + dx[k] * step;
+                        int tmpy = j + dy[k] * step;
+                        if (gridInfo[tmpx][tmpy] != 0 || !inMap(tmpx, tmpy))
+                            break;
+                        sum += mobility[tmpx][tmpy] / step;
+                    }
+                tmp -= 100.0 / (10 + sum);
+            }
+            if (gridInfo[i][j] == -currBotColor)
+            {
+                double sum = 0;
+                for (int k = 0; k < 8; k++) // 8个方向
+                    for (int step = 1; step < GRIDSIZE; step++)
+                    {
+                        int tmpx = i + dx[k] * step;
+                        int tmpy = j + dy[k] * step;
+                        if (gridInfo[tmpx][tmpy] != 0 || !inMap(tmpx, tmpy))
+                            break;
+                        sum += mobility[tmpx][tmpy] / step;
+                    }
+                tmp += 100.0 / (10 + sum); // 唯一不同的地方
+            }
+        }
+    }
+    return tmp;
+}
+// c1,c2的计算，代表Queen和King走法的地理优势
+inline void cal_c1c2(double& c_1, double& c_2)
+{
+    for (int i = 0; i < GRIDSIZE; i++)
+        for (int j = 0; j < GRIDSIZE; j++)
+        {
+            // if (!gridInfo[i][j])
+            if (D1[0][i][j] != 100 && D1[1][i][j] != 100)
+            {
+                double tem = (D2[1][i][j] - D2[0][i][j]) / 6.0;
+                if (tem < -1)
+                {
+                    c_2 -= 1.0;
+                }
+                else if (tem >= -1 && tem <= 1)
+                {
+                    c_2 += tem;
+                }
+                else
+                {
+                    c_2 += 1.0;
+                }
+            }
+            if (D1[0][i][j] != 100 && D1[1][i][j] != 100) // 两边都能到
+                c_1 += pow(2, -D1[0][i][j]) - pow(2, -D1[1][i][j]);
+        }
+    c_1 = 2 * c_1;
+    return;
+}
+// t2的计算，代表King走法对空格的控制权
+inline double t2(int color)
+{
+    double tem = 0;
+    {
+        for (int i = 0; i < GRIDSIZE; i++)
+        {
+            for (int j = 0; j < GRIDSIZE; j++)
+            {
+                if (D2[1][i][j] > D2[0][i][j])
+                {
+                    tem += 1;
+                }
+                else if (D2[1][i][j] < D2[0][i][j])
+                {
+                    tem -= 1;
+                }
+                else // 步数相等
+                {
+                    if (D2[0][i][j] < 100) // 都能到
+                    {
+                        if (color == currBotColor)
+                            tem += 0.1;
+                        else
+                            tem -= 0.1;
+                    }
+                }
+            }
+        }
+    }
+    return tem;
+}
+// t1的计算，代表Queen走法对空格的控制权
+inline double t1(int color)
+{
+    double tem = 0;
+    {
+        for (int i = 0; i < GRIDSIZE; i++)
+        {
+            for (int j = 0; j < GRIDSIZE; j++)
+            {
+                if (D1[1][i][j] > D1[0][i][j])
+                {
+                    tem += 1;
+                }
+                else if (D1[1][i][j] < D1[0][i][j])
+                {
+                    tem -= 1;
+                }
+                else // 步数相等
+                {
+                    if (D1[0][i][j] < 100) // 都能到
+                    {
+                        if (color == currBotColor)
+                            tem += 0.1;
+                        else
+                            tem -= 0.1;
+                    }
+                }
+            }
+        }
+    }
+    return tem;
+}
+// 查看这个颜色的棋子，在这盘局面下拥有的价值。三阶段下权重不同
+inline double value(int color)
+{
+#ifdef PARA
+    cout << t1(color) << "   " << t2(color) << "   " << c1() << "   " << c2() << "   " << m(color) << endl;
+#endif
+    double c_1 = 0.0, c_2 = 0.0;
+    cal_c1c2(c_1, c_2);
+    return f1[turnID] * t1(color) + f2[turnID] * t2(color) + f3[turnID] * c_1 + f4[turnID] * c_2 + f5[turnID] * m(color);
+}
+// 存下来灵活度
+inline void moble()
+{
+    for (int i = 0; i < GRIDSIZE; i++)
+        for (int j = 0; j < GRIDSIZE; j++) // ij位上的棋子灵活度
+        {
+            if (gridInfo[i][j] != 0)
+                continue; // 如果不是空格就算了
+            for (int try1 = 0; try1 < 8; try1++)
+            {
+                int xx = i + dx[try1];
+                int yy = j + dy[try1];
+                if (inMap(xx, yy) && gridInfo[xx][yy] == 0)
+                {
+                    mobility[i][j]++; // 它周围的八个位置如果是空格，它的价值就升高
+                }
+            }
+        }
+}
+inline bool inMap(int x, int y)
+{
+    if (x < 0 || x >= GRIDSIZE || y < 0 || y >= GRIDSIZE)
+        return false;
+    return true;
+}
+inline void clear(queue<Coor>& q)
+{
+    queue<Coor> empty;
+    swap(empty, q);
+}
+int maxdeep = 0;
+// 在坐标处落子，检查是否合法或模拟落子
+bool ProcStep(int x0, int y0, int x1, int y1, int x2, int y2, int color, bool check_only)
+{
+    if ((!inMap(x0, y0)) || (!inMap(x1, y1)) || (!inMap(x2, y2))) // 0或1或2不在棋盘内
+    {
+        return false;
+    }
+    if (gridInfo[x0][y0] != color || gridInfo[x1][y1] != 0) // 如果原来位置没有该颜色的子，或者目标位置有子
+    {
+        return false;
+    }
+    if ((gridInfo[x2][y2] != 0) && !(x2 == x0 && y2 == y0)) // 放障碍位置有子并且该子不为原位置
+    {
+        return false;
+    }
+    if (!check_only) // 只检查就不落子
+    {
+        gridInfo[x0][y0] = 0;
+        gridInfo[x1][y1] = color;
+        gridInfo[x2][y2] = OBSTACLE;
+    }
+    return true;
+}
+
+// 计算所有Queen和King走法，保存在D1，D2中
+inline void movevalue(int color)
+{
+    // #ifdef DEBUG
+    //     double start0 = clock();
+    // #endif
+    int simu_grid1[GRIDSIZE][GRIDSIZE], simu_grid2[GRIDSIZE][GRIDSIZE] = { 0 };
+    for (int i = 0; i < GRIDSIZE; i++)
+        for (int j = 0; j < GRIDSIZE; j++)
+            simu_grid1[i][j] = simu_grid2[i][j] = gridInfo[i][j];
+
+    queue<Coor> qQueen, qKing;
+    if (color == grid_black) // 读入棋子的位置
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            qQueen.push(Coor(blackInfo[i].first, blackInfo[i].second, 0));
+            qKing.push(Coor(blackInfo[i].first, blackInfo[i].second, 0));
+        }
+    }
+    else
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            qQueen.push(Coor(whiteInfo[i].first, whiteInfo[i].second, 0));
+            qKing.push(Coor(whiteInfo[i].first, whiteInfo[i].second, 0));
+        }
+    }
+    int div = color == currBotColor ? 0 : 1;
+    // 处理皇后走法，赋值给D1
+    while (!qQueen.empty())
+    {
+        Coor pos = qQueen.front();
+        qQueen.pop();
+        for (int i = 0; i < 8; i++) // 方向
+        {
+            for (int k = 1; k < GRIDSIZE; k++)
+            {
+                int tempx = dx[i] * k + pos.x;
+                int tempy = dy[i] * k + pos.y;
+                // 不在地图内部，或不是空格，就退出
+                if (!inMap(tempx, tempy) || gridInfo[tempx][tempy] != 0 || simu_grid1[tempx][tempy] != 0)
+                    break;
+                simu_grid1[tempx][tempy] = 1; // 标记为已访问
+                if (pos.val + 1 < D1[div][tempx][tempy])
+                {
+                    D1[div][tempx][tempy] = pos.val + 1;
+                    qQueen.push(Coor(tempx, tempy, pos.val + 1));
+                }
+            }
+        }
+    }
+    // 处理国王走法，赋值给D2
+    while (!qKing.empty())
+    {
+        Coor pos = qKing.front();
+        qKing.pop();
+        for (int i = 0; i < 8; i++) // 方向
+        {
+            int tempx = dx[i] + pos.x;
+            int tempy = dy[i] + pos.y;
+            // 不在地图内部，或不是空格，就退出
+            // 若已访问过
+            if (!inMap(tempx, tempy) || gridInfo[tempx][tempy] != 0 || simu_grid2[tempx][tempy] != 0)
+                continue;
+            simu_grid2[tempx][tempy] = 1; // 标记为已访问
+            if (pos.val + 1 < D2[div][tempx][tempy])
+            {
+                D2[div][tempx][tempy] = pos.val + 1;
+                qKing.push(Coor(tempx, tempy, pos.val + 1));
+            }
+        }
+    }
+}
+
+void initializeD() // 用于初始化D1/D2数组
+{
+    blackInfo.clear();
+    whiteInfo.clear();
+    for (int i = 0; i < 8; i++)
+    {
+        for (int j = 0; j < 8; j++)
+        {
+            if (gridInfo[i][j] == grid_black)
+                blackInfo.push_back(make_pair(i, j));
+            else if (gridInfo[i][j] == grid_white)
+                whiteInfo.push_back(make_pair(i, j));
+
+            if (gridInfo[i][j] == 0)
+            {
+                D1[0][i][j] = D1[1][i][j] = D2[0][i][j] = D2[1][i][j] = 100;
+            }
+            else if (gridInfo[i][j] == currBotColor)
+            {
+                D1[1][i][j] = D2[1][i][j] = -1;
+                D1[0][i][j] = D2[0][i][j] = 0;
+            }
+            else if (gridInfo[i][j] == -currBotColor)
+            {
+                D1[0][i][j] = D2[0][i][j] = -1;
+                D1[1][i][j] = D2[1][i][j] = 0;
+            }
+            else
+            {
+                D1[0][i][j] = D2[0][i][j] = D1[1][i][j] = D2[1][i][j] = -1;
+            }
+        }
+    }
+}
+inline double calculate()
+{
+
+    memset(mobility, 0, sizeof(mobility)); // 清零灵活度数组
+    initializeD();
+    movevalue(currBotColor);
+    movevalue(-currBotColor);
+    moble();                            // 存下来灵活度
+    double Value = value(currBotColor); // 查看这个颜色的棋子，在这盘局面下拥有的价值。三阶段下权重不同
+
+    return Value;
+}
+int main()
+{
+    start_time = clock();
+    currBotColor = 0;
+    gridInfo[0][(GRIDSIZE - 1) / 3] = gridInfo[(GRIDSIZE - 1) / 3][0] = gridInfo[GRIDSIZE - 1 - ((GRIDSIZE - 1) / 3)][0] = gridInfo[GRIDSIZE - 1][(GRIDSIZE - 1) / 3] = grid_black;
+    gridInfo[0][GRIDSIZE - 1 - ((GRIDSIZE - 1) / 3)] = gridInfo[(GRIDSIZE - 1) / 3][GRIDSIZE - 1] = gridInfo[GRIDSIZE - 1 - ((GRIDSIZE - 1) / 3)][GRIDSIZE - 1] = gridInfo[GRIDSIZE - 1][GRIDSIZE - 1 - ((GRIDSIZE - 1) / 3)] = grid_white;
+    // 初始化棋盘
+    int cnt = 0;
+    for (int i = 0; i < 100000; i++)
+    {
+        calculate();
+        cnt++;
+    }
+    current_time = clock();
+    cout << (double)(current_time - start_time) / A_SEC << endl;
+}
